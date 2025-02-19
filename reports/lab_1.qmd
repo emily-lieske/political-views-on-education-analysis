@@ -1,0 +1,20 @@
+---
+title: "Lab 1"
+author: "Fill this in" 
+date: today 
+date-format: long
+format: 
+  pdf: 
+    documentclass: scrreprt
+    classoption: onecolumn
+editor: visual
+---
+
+# Importance and Context
+
+# Data and Methodology
+
+# Results
+
+# Discussion
+

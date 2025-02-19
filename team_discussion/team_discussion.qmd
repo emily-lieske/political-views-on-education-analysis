@@ -1,0 +1,52 @@
+---
+title: "Team Discussion"
+format: pdf
+editor: visual
+---
+
+The MIDS program is intentional about building a diverse community of students-cum-data scientists. Our students come call many countries and American states home; our families span the globe; and, our work and educational histories are as varied as they are storied.
+
+A fixture of our program is the end-of-semester group project. These projects achieve several program and course goals.
+
+1.  Group projects provide students with an opportunity to use the techniques learned in the course to a data science task of their own choosing.
+2.  Group projects provide students with a supportive peer-group working to solve the same question. Especially in data science, this form of peer-to-peer learning is a life-long skill. Without an expert to arbitrate the "correctness" of an approach, students have to evaluate several approaches and argue for why they have chosen a particular approach.
+3.  Group projects provide an opportunity to model positive group-behavior on collaborative data science projects.
+
+## Discussion Before the Project
+
+The diversity of experience may lead individuals to hold different ideas about what it is to be a part of a "team" working together toward a common goal. With this discussion guide we hope groups will take an opportunity to discuss and build a consensus view about how they would like the team to function.
+
+Please note that your instructor is not going to collect and store this discussion guide.
+
+## Discussion After the Project
+
+At the conclusion of the project, the team will be asked to meet for an internal, ungraded project review. The review conversation will not be factored into the team-members final grades. Instead, this feedback is intended to foster dialogue within the team, and provide the instructor with more resolution about growth areas for the team, and each member on the team. This end-of-project review is included on the last page of this document.
+
+\newpage
+
+# Discussion Before the Project
+
+## Coordinating Group Expectations
+
+As a project team please discuss the following questions.
+
+1.  What is the problem that the team is trying to solve?
+
+2.  What would make this project a success?
+
+3.  What is most important: time, or quality?
+
+4.  What would you like to call this team?
+
+5.  How would you like to communicate?
+
+    a.  Do teammates use Slack on their phones?
+    b.  Do teammates use Slack through a web-browser?
+    c.  Do teammates use Slack through the desktop native application?
+    d.  What type of notifications would the team like to enable in their channel?
+    e.  Is the team "always-on"? How will a teammate let the others know they are unavailable?
+    f.  What is the expectation for how quickly a teammate will respond to a question from someone else on the team?
+
+6.  When does the team want to work? For example, at night after their section dismisses? At lunch or during the workday? On the weekends?
+
+7.  What, if any, review process would the team like to use before committing individual work as part of the group work-product?
