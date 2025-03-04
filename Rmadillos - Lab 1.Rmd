@@ -1,0 +1,405 @@
+---
+title: "Lab 1"
+author: "Rmadillos - Carmen Liang, Emily Lieske, Margaret Lubega"
+date: "2025-03-03"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, results='hide', warning = FALSE, message = FALSE) 
+```
+
+\newpage
+
+# Importance and Context
+
+Our research at Rmadillos Consulting Group aims to address the question, “Do Democratic and Republican voters have different views of primary and secondary schooling?” This research is relevant as changing political climates have led to increased scrutiny in the media about what should and should not be taught in primary and secondary schools. Additionally, there has been continued debate about the importance and potential bias introduced in secondary education by both the Democrat and Republican parties. Our research plans to approach this question by analyzing sentiments regarding primary and secondary education in a non-leading or politically charged manner to gather true sentiments about these institutions across party lines. Our research aims to provide insights for policymakers to help inform policy decisions surrounding education and gain insights for future research that can be done on how to utilize these sentiments. Additionally, our findings can be used to raise awareness to the public about whether a significant difference in sentiments towards primary and secondary schooling actually exists between the two parties.
+
+```{r}
+library(tidyverse) 
+library(magrittr)
+library(knitr)
+library(patchwork)
+library(dplyr)
+library(car)
+library(effectsize)
+library(effsize)
+anes_data <- read.csv("anes_pilot_2024_20240319.csv")
+```
+
+```{r}
+# Select Chosen Variables
+anes_data_filtered <- anes_data %>%
+  select(pid7, pid_partylean, group_colprofs, imp_schteach, votereg)
+```
+
+```{r}
+# Check for Missing Values
+colSums(is.na(anes_data_filtered))
+```
+
+```{r}
+# Create dataset where we drop rows that we cannot determine if a registered voter
+anes_data_filtered <- anes_data_filtered %>%
+  filter(votereg %in% c("Yes", "No"))
+
+rows_dropped_votereg <- nrow(anes_data) - nrow(anes_data_filtered)
+cat("Number of rows dropped due to votereg filter (keeping only Yes/No):", rows_dropped_votereg, "\n")
+```
+
+```{r}
+# Convert Categorical Variables To Numerical
+# Convert imp_schteach to a 1-5 Scale
+
+anes_data_filtered <- anes_data_filtered %>%
+  mutate(education_importance = case_when(imp_schteach == "Extremely important" ~ 5, imp_schteach == "Very important" ~ 4,
+  imp_schteach == "Moderately important" ~ 3, imp_schteach == "Slightly important" ~ 2,
+    imp_schteach == "Not at all important" ~ 1, TRUE ~ NA_real_))
+
+# Verify changes
+table(anes_data_filtered$education_importance, useNA = "ifany")
+```
+
+```{r}
+# Convert group_colprofs to Numeric
+anes_data_filtered <- anes_data_filtered %>%
+  mutate(feeling_college_professors = case_when(group_colprofs %in% c("not asked", "No Answer") ~ NA_real_, TRUE ~ as.numeric(group_colprofs)))
+
+# Verify changes
+table(anes_data_filtered$feeling_college_professors, useNA = "ifany")
+```
+
+```{r}
+# Categorize Political Parties
+anes_data_filtered <- anes_data_filtered %>% 
+  mutate(party = case_when(
+      # Democrat: Either pid7 is a type of Democrat OR pid_partylean leans Democratic
+      pid7 %in% c("Strong Democrat", "Not very strong Democrat", "Lean Democrat") |
+      pid_partylean == "Closer to the Democratic Party" ~ "Democrat",
+
+      # Republican: Either pid7 is a type of Republican OR pid_partylean leans Republican
+      pid7 %in% c("Strong Republican", "Not very strong Republican", "Lean Republican") |
+      pid_partylean == "Closer to the Republican Party" ~ "Republican",
+
+      # Independent: pid7 is "Independent" AND pid_partylean is "inapplicable, legitimate skip" OR "Neither"
+      pid7 == "Independent" & pid_partylean %in% c("inapplicable, legitimate skip", "Neither") ~ "Independent",
+
+      # Unclassified: pid7 is blank OR "Not Sure" AND pid_partylean is "inapplicable, legitimate skip" OR "Neither"
+      (pid7 == "" | pid7 == "Not Sure") & pid_partylean %in% c("inapplicable, legitimate skip", "Neither") ~ "Unclassified", TRUE ~ "Unclassified"))
+
+# Convert to factor
+anes_data_filtered$party <- factor(anes_data_filtered$party, levels = c("Democrat", "Republican", "Independent", "Unclassified"))
+
+# Verify changes
+table(anes_data_filtered$party, useNA = "ifany")
+```
+
+```{r}
+# Checking Missing Values Per Party
+cat("Missing Values in Education Importance:\n")
+print(table(anes_data_filtered$party, is.na(anes_data_filtered$education_importance)), quote = FALSE)
+
+cat("\nMissing Values in Feelings Toward College Professors:\n")
+print(table(anes_data_filtered$party, is.na(anes_data_filtered$feeling_college_professors)), quote = FALSE)
+```
+
+```{r}
+# Create dataset where we drop rows with missing education importance
+anes_data_no_edu_missing <- anes_data_filtered %>%
+  filter(!is.na(education_importance)) %>%
+  filter(party %in% c("Democrat", "Republican"))
+
+# Count number of dropped rows for education importance dataset
+dropped_edu <- nrow(anes_data_filtered) - nrow(anes_data_no_edu_missing)
+cat("Number of rows dropped due to missing education importance:", dropped_edu, "\n")
+```
+
+```{r}
+# Create dataset where we drop rows with missing feelings toward college professors
+anes_data_no_college_missing <- anes_data_filtered %>%
+  filter(!is.na(feeling_college_professors)) %>%
+  filter(party %in% c("Democrat", "Republican"))
+
+# Count number of dropped rows for college professors dataset
+dropped_college <- nrow(anes_data_filtered) - nrow(anes_data_no_college_missing)
+cat("Number of rows dropped due to missing feelings toward college professors:", dropped_college, "\n")
+```
+
+```{r}
+# Show final dimensions of both datasets
+cat("\nFinal dataset sizes:\n")
+cat("No missing education importance:", nrow(anes_data_no_edu_missing), "rows\n")
+cat("No missing college professors:", nrow(anes_data_no_college_missing), "rows\n")
+```
+
+```{r}
+# Full dataset size before any filtering
+total_rows <- nrow(anes_data)
+
+# Track rows dropped after voter registration filter (keeping only Yes/No)
+rows_dropped_votereg <- total_rows - nrow(anes_data_filtered)
+
+# Create filtered dataset to just Democrats and Republicans
+anes_data_partisans <- anes_data_filtered %>%
+  filter(party %in% c("Democrat", "Republican"))
+
+# Track rows dropped when filtering to just Democrats & Republicans
+rows_dropped_party <- nrow(anes_data_filtered) - nrow(anes_data_partisans)
+
+# Track rows dropped after removing missing education importance
+rows_dropped_edu <- nrow(anes_data_partisans) - nrow(anes_data_no_edu_missing)
+
+# Track rows dropped after removing missing feelings toward college professors
+rows_dropped_college <- nrow(anes_data_partisans) - nrow(anes_data_no_college_missing)
+
+# Create the accounting table
+accounting_table <- tibble::tibble(
+  Step = c("Initial Dataset (Total Rows)",
+           "After Voter Registration (votereg) Filter with Yes/No only",
+           "After Filtering Party to only Democrats and Republicans",
+           "After Dropping imp_schteach with inapplicable, legitimate skip",
+           "After Dropping group_colprofs with not asked/ No Answer"),
+  Rows_Remaining = c(total_rows, nrow(anes_data_filtered), nrow(anes_data_partisans), nrow(anes_data_no_edu_missing), nrow(anes_data_no_college_missing)),
+  Rows_Dropped = c(NA, rows_dropped_votereg, rows_dropped_party, rows_dropped_edu, rows_dropped_college))
+```
+# Data and Methodology
+Our data comes from the American National Election Studies (ANES) - an academically-run national survey series that has collected data on public opinion, political participation, and voter behavior in the U.S. since 1948. We used the 2024 Pilot Study dataset, which is a cross-sectional survey that gathers public opinion during the early phase of the 2024 presidential election campaign. There are 1500 survey respondents resulting in `r total_rows` in the data set due to weighting and partial responses in the survey techniques.
+
+To answer our research question, we are interested in the sentiments of Democratic and Republican voters, as such we define voters as anyone who is registered to vote. We chose to look at registered voters because it is a more accurate measure of who may vote in future elections and considers factors such as turning 18, gaining citizenship or personal factors that may have affected voter participation in the previous election cycle. We analyzed the data and filtered out `r rows_dropped_votereg` respondents that responded “No”, “Don’t know” or did not answer regarding their voter registration status under `votereg`.
+
+Research conducted by John Richard Petrocik found that many people have a party preference even if they do not choose to identify with that party. These people tend to have a political “leaning” and typically act as weak partisans despite identifying as an Independent or non-partisan. As such, if someone identified as a supporter of a party on the `pid7` variable, which measures political party identification on a 7-point scale, ranging from “Strong Democrat” to “Strong Republican” we categorized them as a Democrat or Republican accordingly. For the remaining respondents who identified as Independent, Not Sure or No Response we referred to the variable `pid_partylean` to find their party leaning and categorized them as the party they lean most closely with. All `r rows_dropped_party` respondents that did not identify with the Democrat or Republican party and showed no party leaning were considered true non-partisans and dropped from the data set.
+
+To investigate if Republicans and Democrats have different views of primary education we chose to assess the variable `imp_schteach` which ranks how important they answered,“What is being taught in public schools?" on a likert scale from “Not at all important” to “Extremely important”. We chose this variable to measure how partisan voters feel about primary education, which we consider to be K-12th grade public schools. In total we analyzed `r nrow(anes_data_no_edu_missing)` responses and dropped `r rows_dropped_edu` partisans that did not respond to this question.
+
+To evaluate if Democrats and Republicans have different views towards secondary education, we selected the `group_colprofs` variable to measure how respondents from each party answered the question, “How would you rate college professors?” which we use to assess sentiments towards secondary education, which we consider to be college and university levels of education. We analyzed `r nrow(anes_data_no_college_missing)` responses and dropped `r rows_dropped_college` partisans that did not respond to this question.
+
+We also considered assessing variables such as `highered_bias` (Political bias in what colleges/universities teach students) and `own_schteach` (assessing which party does a better job at what is being taught in school), but we did not want to introduce additional political bias. Other variables considered for both primary and secondary education had high non-response rates, which made them unsuitable for this analysis.
+
+```{r accounting_table, echo=FALSE, results='asis'}
+knitr::kable(accounting_table, caption = "Summary of Rows Remaining and Rows Dropped", format = "markdown")
+```
+
+## Testing the Importance of What is Being Taught in Public Schools
+In order to test if there is a difference in sentiments between Democratic and Republican voters about the importance of what is being taught in public schools we conducted a Wilcoxon Rank Sum test using the Hypothesis of Comparisons. We determined this test to be the most appropriate for comparing these two groups because it allows us to compare the median ranks for subjective data between two independent groups. Additionally, the non-parametric nature does not rely on an assumption of a normal distribution (which cannot be made with non-metric data). We proceeded with this test based on the following assumptions:
+
+The first assumption is an ordinal scale. As we can see, the importance of what is taught in public schools is ranked on a likert scale and there is a clear order to the data and it is not on a metric/ numerical scale. The second assumption is IID, where Republicans and Democrats were both drawn from the same distribution of ANES survey respondents and their selection is mutually independent. The ANES survey methodology also randomizes the order in which questions are asked, the order of the available responses and the questions that were asked of each participant which has the carry over effect of reducing bias in the aggregation of responses, supporting the notion of IID. We acknowledge that there may be challenges with this assumption due to temporal effects of current media coverage or other demographic and social factors not measured in this research.
+
+The hypothesis of our Wilcoxon Rank Sum test can be phrased as follows:
+
+**Null Hypothesis (**$H_0$): There is no difference in how Democratic (D) and Republican (R) voters rate the importance of what is being taught in public schools. 
+     $H_0: P(D > R) = P(R > D) = 0.5$.\
+**Alternative Hypothesis (**$H_1$): There is a difference in how Democratic and Republican voters rate the importance of what is being taught in public schools. 
+     $H_1: P(D > R) \neq 0.5$.
+
+```{r Wilcoxon Rank Sum - Education Importance, include=FALSE}
+z <- anes_data_no_edu_missing
+z %>% filter(z$party == "Democrat")
+
+Dems <- z %>% filter(z$party == "Democrat")
+Reps <- z %>% filter(z$party == "Republican")
+Dems <- z %>% filter(z$party == "Democrat") %>% select(education_importance)
+Reps <- z %>% filter(z$party == "Republican") %>% select(education_importance)
+
+# Compute medians
+median_dems <- median(Dems$education_importance, na.rm = TRUE)
+median_reps <- median(Reps$education_importance, na.rm = TRUE)
+
+# Print results
+cat("\nMedian education_importance for Democrats:", median_dems, "\n")
+cat("Median education_importance for Republicans:", median_reps, "\n")
+
+# Run Wilcoxon rank-sum test with Dems first (to get W for Democrats)
+test_dems_first <- wilcox.test(Dems$education_importance, Reps$education_importance)
+# Run Wilcoxon rank-sum test with Reps first (to get W for Republicans)
+test_reps_first <- wilcox.test(Reps$education_importance, Dems$education_importance)
+
+"W when Dems are first: "
+test_dems_first
+"W when Reps are first: "
+test_reps_first
+
+# Store values
+options(scipen = 999)
+wilcox_w_dems <- formatC(test_dems_first$statistic, format = "f", digits = 1)
+wilcox_w_reps <- formatC(test_reps_first$statistic, format = "f", digits = 1)
+wilcox_p_value <- format.pval(test_dems_first$p.value, digits = 4)
+
+# median_dems
+# median_reps
+```
+
+```{r Rank Biserial for Education Importance}
+# Calculate rank biserial
+rank_rep <- rank_biserial(Reps$education_importance, Dems$education_importance)
+
+rank_rep
+```
+
+```{r Welch’s t-test - Feelings towards college professors, include=FALSE}
+x <- anes_data_no_college_missing
+x %>% filter(x$party == "Democrat")
+Dem <- x %>% filter(x$party == "Democrat")
+Rep <- x %>% filter(x$party == "Republican")
+Dem <- x %>% filter(x$party == "Democrat") %>% select(feeling_college_professors)
+Rep <- x %>% filter(x$party == "Republican") %>% select(feeling_college_professors)
+leveneTest(x$feeling_college_professors ~ x$party)
+levene_test_result <- car::leveneTest(x$feeling_college_professors ~ x$party)
+levene_f_value <- as.numeric(levene_test_result$"F value"[1])
+t_test_result <- t.test(Dem$feeling_college_professors, Rep$feeling_college_professors, var.equal = FALSE)
+
+# Store values
+t_statistic <- round(t_test_result$statistic, 3)
+t_p_value <- format.pval(t_test_result$p.value, digits = 4)
+median_dem_professors <- median(Dem$feeling_college_professors, na.rm = TRUE)
+median_rep_professors <- median(Rep$feeling_college_professors, na.rm = TRUE)
+mean_dem_professors <- round(mean(Dem$feeling_college_professors, na.rm = TRUE), 1)
+mean_rep_professors <- round(mean(Rep$feeling_college_professors, na.rm = TRUE), 1)
+options(scipen = 999)
+t_w_dem <- formatC(t_test_result$statistic, format = "f", digits = 1)
+t_w_rep <- formatC(t_test_result$statistic, format = "f", digits = 1)
+
+t_test_result
+t_statistic
+# mean_dem_professors
+# mean_rep_professors
+
+```
+
+```{r Calculate Cohens d for college professors}
+# Cohen’s d (unequal variances)  
+cohen_d_result <- cohen.d(  
+  Dem$feeling_college_professors,  
+  Rep$feeling_college_professors,  
+  pooled = FALSE, 
+  conf.level = 0.95  
+)  
+
+cohen_d_result
+```
+
+## Testing the Sentiment Towards College Professors
+In order to test if the sentiments towards college professors is significantly different between Republican and Democratic voters we conducted a two sample Welch’s t-test as the thermometer scale data allows us to compare the mean sentiments of these two groups. We conducted a Levene Test which returned an F value of `r round(levene_f_value, 3)` indicating the variances between these two groups are not equal, making the Welch’s t-test appropriate. We proceeded with this test based on the following assumptions:
+
+The first assumption is metric scale. As the data is measured on a continuous numerical scale from 0-100, the data is both metric and ordinal. This allows us to assume metric scale because the data does not take on an exclusively ordinal structure. Our second assumption of IID is based on the same rationale described in detail above. ANES data is often assumed to be IID based on their weighted sampling methodology aiming to be as nationally representative as possible. Similarly recent media coverage or demographic, social or geographic variables not assessed in this study could potentially challenge our assumptions. Our third assumption of no major deviations from a normal distribution relies on the Central Limit theorem which states that with a large enough sample size the distribution will converge to a normal distribution. As our sample size is over 30 respondents this is considered a sufficiently large sample size under the CLT.
+
+The hypothesis of our Welch's t-test can be phrased as follows:
+
+**Null Hypothesis (**$H_0$): There is no difference between the mean sentiment toward college professors among Democratic and Republican voters. 
+     $H_0: \mu_D = \mu_R$.\
+**Alternative Hypothesis (**$H_1$): There is a difference between the mean sentiment toward college professors among Democratic and Republican voters. 
+     $H_1: \mu_D \neq \mu_R$.
+     
+For both tests conducted, if any of the above mentioned assumptions do not hold the statistical implications could result in inaccurate measures of the mean or median, incorrect or misleading conclusions and invalid results.
+
+## Results
+```{r}
+# Data Visualization 1
+# Pivot data to long format for easy plotting
+anes_education_importance <- anes_data_no_edu_missing %>%
+  select(party, education_importance, feeling_college_professors) %>%
+  pivot_longer(cols = c(education_importance, feeling_college_professors), names_to = "category", values_to = "value")
+
+# Create ordered factors for the education importance (1-5 Likert)
+anes_education_importance$value <- factor(anes_education_importance$value, levels = c(1, 2, 3, 4, 5))
+
+color_selection1 <- c("1" = "#F46D43", "2" = "#FDD3A2", "3" = "#D1E5F0", "4" = "#67A9CF", "5" = "#2166AC")
+# Education Importance Plot
+plot_education_importance <- ggplot(anes_education_importance %>% filter(category == "education_importance"), 
+                   aes(x = party, fill = value)) +
+  geom_bar(position = "fill", width = 0.6) +
+  coord_flip() +
+  scale_fill_manual(values = color_selection1, 
+                    name = "Perceived Importance",
+                    labels = c("1: Not at all", "2: Slightly", "3: Moderately", "4: Very", "5: Extremely"),
+                    guide = guide_legend(reverse = TRUE)) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  labs(title = "Perceived Importance of School Teachings by Party", x = "Party", y = "Percentage of Respondents",
+       caption = "Figure 1: Relative Importance of Public School Teachings Among Democratic and Republican Voters") +
+  theme_minimal(base_size = 15) +
+  theme(legend.position = "top", legend.title = element_blank(),
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    axis.text.y = element_text(face = "bold", colour = c("Democrat" = "blue", "Republican" = "red")),
+    axis.title.y = element_text(face = "bold", size = 12),
+    axis.title.x = element_text(face = "bold", size = 12),
+    plot.caption = element_text(hjust = 0.5, face = "italic"))
+```
+
+```{r}
+# Data Visualization 2
+color_selection2 <- c("Democrat" = "#A6CEE3", "Republican" = "#FB9A99")
+
+# Feelings Toward Professors Plot
+plot_feeling_college_professors <- ggplot(anes_data_no_college_missing, aes(x = party, y = feeling_college_professors, fill = party)) +
+  geom_boxplot(outlier.shape = NA, width = 0.6, color = "black") +
+  geom_jitter(width = 0.15, alpha = 0.3, size = 1) +
+  scale_fill_manual(values = color_selection2) +
+  labs(title = "Feelings Toward College Professors by Party", x = "Party", y = "Feeling Thermometer Score (0 - 100)",
+       caption = "Figure 2: Distribution of Feelings Toward College Professors Among Democratic and Republican Voters") +
+  theme_minimal(base_size = 15) +
+  theme(legend.position = "none",
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    axis.text.x = element_text(face = "bold", colour = c("Democrat" = "blue", "Republican" = "red")),
+    panel.grid.major.y = element_line(color = "grey90"), panel.grid.minor.y = element_blank(),
+    axis.title.y = element_text(face = "bold", size = 12),
+    axis.title.x = element_text(face = "bold", size = 12),
+    plot.caption = element_text(hjust = 0.5, face = "italic"))
+
+# Compute summary stats
+summary_stats <- anes_data_no_college_missing %>%
+  group_by(party) %>%
+  summarise(count = n(), median = median(feeling_college_professors, na.rm = TRUE),
+    mean = mean(feeling_college_professors, na.rm = TRUE),.groups = "drop")
+
+# Add labels with white background
+plot_feeling_college_professors <- plot_feeling_college_professors +
+  geom_text(data = summary_stats, aes(x = party, y = 105, label = paste0("n = ", count)), size = 4, fontface = "bold", color = "black") +
+  geom_label(data = summary_stats, aes(x = party, y = median, label = paste0("Median = ", round(median, 1))),
+             size = 4, fontface = "bold", color = "black", fill = "white", label.size = 0) + 
+  geom_label(data = summary_stats, aes(x = party, y = median - 7, label = paste0("Mean = ", round(mean, 1))),
+             size = 4, fontface = "italic", color = "black", fill = "white", label.size = 0) 
+```
+
+```{r}
+# Summary stats for education importance by party
+summary_edu <- anes_data_no_edu_missing %>%
+  group_by(party) %>%
+  summarise(count = n(), median_importance = median(education_importance, na.rm = TRUE), mean_importance = mean(education_importance, na.rm = TRUE),
+            sd_importance = sd(education_importance, na.rm = TRUE), .groups = "drop")
+
+mode_importance <- anes_data_no_edu_missing %>%
+  group_by(party, education_importance) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  group_by(party) %>%
+  mutate(percent = count / sum(count) * 100) %>%
+  filter(percent == max(percent)) %>%
+  select(party, education_importance, percent)
+
+# Summary stats for feelings toward college professors by party
+summary_professors <- anes_data_no_college_missing %>%
+  group_by(party) %>%
+  summarise(count = n(), median_feelings = median(feeling_college_professors, na.rm = TRUE),
+    mean_feelings = mean(feeling_college_professors, na.rm = TRUE),
+    .groups = "drop")
+```
+
+```{r}
+# Combined plot
+combined_plot <- plot_education_importance | plot_feeling_college_professors +
+  plot_annotation(title = "Figure 1: Partisan Differences in Perceived Importance of Public School Teachings and Feelings Toward College Professors",
+  theme = theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 12), plot.margin = margin(5, 5, 5, 5)))
+```
+The stacked bar chart (`Figure 1`) highlights the full distribution of importance ratings within each party, allowing us to compare how much weight each group assigns to public school teachings. Among Democratic voters, the largest share (`r round(mode_importance$percent[mode_importance$party == "Democrat"], 2)`%) rated public school teachings as "`r mode_importance$education_importance[mode_importance$party == "Democrat"]`", while the most common rating among Republicans was "`r mode_importance$education_importance[mode_importance$party == "Republican"]`" (`r round(mode_importance$percent[mode_importance$party == "Republican"], 2)`%). The Wilcoxon Rank-Sum test reveals statistically significant differences in the perceived importance of public school education between Democratic and Republican voters (p `r ifelse(test_dems_first$p.value < 0.001, "0.001", paste0("= ", wilcox_p_value))`). Republicans demonstrated a stronger emphasis on what is being taught in public school, as evidenced by their substantially larger W statistic and a higher median  (W = `r formatC(wilcox_w_reps, format = "f", digits = 1)`, median = `r median_reps`) compared to Democrats (W = `r formatC(wilcox_w_dems, format = "f", digits = 1)`, median = `r median_dems`). The rank-biserial correlation, a measure of effect size, was `r formatC(rank_rep$r_rank_biserial, format="f", digits=2)` (95% CI [`r formatC(rank_rep$CI_low, format="f", digits=2)`,`r formatC(rank_rep$CI_high, format="f", digits=2)`]), indicating a moderate practical difference between groups. This suggests Republicans prioritize school curriculum about `r round((summary_edu$mean_importance[summary_edu$party == "Republican"] - summary_edu$mean_importance[summary_edu$party == "Democrat"]) / summary_edu$sd_importance[summary_edu$party == "Democrat"], 2)` standard deviations more intensely than Democrats, a meaningful gap in the context of educational policy debates.
+
+```{r, fig.width = 18, fig.height = 9}
+print(combined_plot)
+```
+
+The box plot (`Figure 2`) highlights both the central tendency and the spread of responses, allowing us to see not only whether Democrats and Republicans feel differently about college professors, but also whether there is greater consistency or polarization within each party. The Welch’s t-test reveals statistically significant differences in feelings toward college professors between Democratic and Republican voters (t = `r t_statistic`, p = `r ifelse(t_test_result$p.value < 0.001, "0.001", paste0(" = ", t_p_value))`). Democrats (mean = `r mean_dem_professors`) rated college professors markedly higher than Republicans (mean = `r mean_rep_professors`) with a very large effect size as measured by Cohen’s d (delta = `r round(cohen_d_result$estimate, 2)`), reflecting a profound partisan divide. The direction of the effect states that Democrats hold substantially warmer sentiments toward college professors.
+
+# Discussion
+This study identifies partisan divides in attitudes towards primary and secondary education. While Republicans place slightly greater importance on what is being taught in public schools, Democrats express significantly warmer feelings toward professors. Our results have practical significance for policymakers and educators seeking to understand how public sentiment in education institutions varies by political affiliation. The moderate effect size for primary school education suggests having both parties to support K-12 education is possible, whereas the polarization around professors implies higher education policies may face strong opposition. While this study addresses attitudes towards education in general, future studies may be focused on exploring the causal mechanisms– such as media influence, geographic background–behind the differences. Having a better understanding of how these attitudes influence policy preferences may help inform discussions about education and foster trust in educational institutions across different partisans.
+
+### Sources:
+John Richard Petrocik,Measuring party support: Leaners are not independents, Electoral Studies, Volume 28, Issue 4, 2009,Pages 562-572,ISSN 0261-3794, https://doi.org/10.1016/j.electstud.2009.05.022.
